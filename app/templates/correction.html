@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "ledger.jinja" import register %}
+{% block stage %}
+<div class="register-grid correction-grid">
+  <section class="panel">
+    <div class="panel-head"><h2>更正请求</h2><span>不重开历史账单</span></div>
+    <form id="correction-form" class="correction-form">
+      <input type="hidden" name="source" value="{{ meta['批次'] }}">
+      <label>生效账期（留空取合同起始月）
+        <input name="effective" type="month" max="{{ meta['账期'] }}">
+      </label>
+      <label>更正说明
+        <input name="reason" type="text" maxlength="200" placeholder="合同费率更正">
+      </label>
+      <div id="change-rows" class="change-rows"
+           data-contracts='{{ run["合同版本"]|tojson }}'></div>
+      <button type="submit">生成更正结算</button>
+      <output id="correction-feedback" role="status"></output>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>源批次修订档案</h2><span>{{ revision_history|length }} 版</span></div>
+    <ol class="archive">
+      {% for item in revision_history %}
+      <li><a href="{{ url_for('work', stage='correction', run=meta['批次'], revision=item['修订批次']) }}">
+        {{ item['生效账期'] }} 起 · {{ item['修订批次'] }} · 原账复核 {{ item['原账复核'] }}
+      </a></li>
+      {% else %}<li class="empty">该月结尚无更正修订。</li>{% endfor %}
+    </ol>
+  </section>
+</div>
+
+{% if revision %}
+<div class="correction-detail">
+  <section class="panel">
+    <div class="panel-head">
+      <h2>更正结算 · {{ revision['更正清单']['修订批次'] }}</h2>
+      <a data-export href="{{ url_for('export', run_id=revision['更正清单']['修订批次']) }}">下载更正凭证</a>
+    </div>
+    <dl class="revision-kpis">
+      <div><dt>原应缴 · 元</dt><dd>{{ revision['更正勾稽']['原应缴分']|yuan }}</dd></div>
+      <div><dt>更正后应缴 · 元</dt><dd>{{ revision['更正勾稽']['更正后应缴分']|yuan }}</dd></div>
+      <div><dt>本期承接差额 · 元</dt><dd>{{ revision['更正勾稽']['承接差额分']|yuan }}</dd></div>
+      <div><dt>收缴差额 · 元</dt><dd>{{ revision['更正勾稽']['收缴差额分']|yuan }}</dd></div>
+      <div><dt>原账复核</dt><dd>{{ revision['更正清单']['原账复核'] }}</dd></div>
+    </dl>
+  </section>
+  <div class="register-grid">
+    {{ register('更正依据（改前 / 改后）', revision['更正依据']) }}
+    {{ register('分月重算（原账 / 更正后 / 月差额）', revision['分月重算']) }}
+    {{ register('本期承接结算（分月重算与收缴对账同一依据）', revision['承接结算']) }}
+    {{ register('更正后旧期回冲', revision['更正后回冲']) }}
+    {{ register('更正清单', [revision['更正清单']]) }}
+  </div>
+</div>
+{% endif %}
+<script type="module" src="{{ url_for('static', filename='correction.js') }}"></script>
+{% endblock %}

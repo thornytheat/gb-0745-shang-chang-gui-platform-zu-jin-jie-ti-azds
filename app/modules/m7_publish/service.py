@@ -58,6 +58,7 @@ def calculate(raw, period):
                 "起始": c["start"].isoformat(),
                 "截止": c["end"].isoformat(),
                 "月保底分": c["floor"],
+                "阶梯档": [[limit, points] for limit, points in c["tiers"]],
             }
             for c in contracts
         ],

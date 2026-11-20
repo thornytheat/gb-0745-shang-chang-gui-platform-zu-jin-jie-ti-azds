@@ -15,6 +15,7 @@
 | M5 退单回冲 | 追原流水，重算旧月应计差 | `GET /api/refunds/{id}` | `app/modules/m5_refunds/credits.py` `app/modules/m5_refunds/service.py` | `tests/test_refunds.py` |
 | M6 租金勾稽 | 核对实缴、欠缴与账簿行数 | `GET /api/reconcile/{id}` | `app/modules/m6_reconcile/service.py` `app/modules/m6_reconcile/totals.py` | `tests/test_reconcile.py` |
 | M7 结算复核 | 从批次凭证复算、下载证据 | `GET /api/publish/{id}` `POST /api/runs` | `app/modules/m7_publish/service.py` `app/modules/m7_publish/export.py` `app/store.py` | `tests/test_publish.py` |
+| M8 租金更正 | 费率更正后逐月重算，差额承接本期，原账单与原合同依据留档 | `POST /api/corrections` `GET /api/corrections/{id}` `GET /api/correction/{修订批次}` | `app/modules/m8_correction/service.py` `app/modules/m8_correction/engine.py` `app/modules/m8_correction/request.py` `app/modules/m8_correction/store.py` | `tests/test_correction.py` |
 
 ## 陷阱登记
 
@@ -31,11 +32,25 @@
 | TRAP-17 | `mall.json` 旧金额字段 gross | 旧账对应列丢失 | 显式兼容别名 | `app/modules/m1_intake/service.py` | `tests/test_intake.py::test_legacy_alias` |
 | TRAP-23 | `mall.json` 合同于当日切换 | 同时计入两个版本 | 合同 `[start,end)` | `app/modules/m2_contracts/versions.py` | `tests/test_contracts.py::test_adjacent_boundaries` |
 | TRAP-25 | `mall.json` 存在合同重叠 | 随机采信一版 | 暂停区间内归属并提供冲突区间 | `app/modules/m2_contracts/service.py` | `tests/test_contracts.py::test_overlap_not_guessed` |
+| TRAP-30 | 费率更正晚于已签月结 | 直接改写历史账单，已发凭证对不上 | 源批次不可变，更正以独立修订批次存档并嵌入原合同依据 | `app/modules/m8_correction/store.py` `app/modules/m8_correction/engine.py` | `tests/test_correction.py::test_original_contract_basis_kept_before_and_after` |
+| TRAP-31 | 只在本期套用新费率 | 后续欠缴仍按旧阶梯累计 | 从生效账期到当期逐月用同一引擎重算，历史月差额汇总承接本期 | `app/modules/m8_correction/engine.py` | `tests/test_correction.py::test_rate_correction_recomputes_every_month_and_carries_carry` |
+| TRAP-32 | 重复提交同一更正 | 生成多版结果 | 请求规范化后哈希，重跑返回同一修订批次不新增 | `app/modules/m8_correction/request.py` `app/modules/m8_correction/store.py` | `tests/test_correction.py::test_revision_is_idempotent_and_concurrency_safe` |
+| TRAP-33 | 更正生成中途失败 | 覆盖或清空上一版 | 校验与重算均在落库前完成，失败时旧修订与源批次保留 | `app/modules/m8_correction/service.py` | `tests/test_correction.py::test_failed_generation_keeps_previous_revision` |
 
 ## 验算
 
 `clean.json` 中 001 柜台的本月净销售 1400 元。前 1000 元按 10%，后 400 元按 20%，抽成为 180 元。旧期退单使原月应计由 130 调整为 110 元。本期应缴 160 元，与实缴平账。
 
+## 租金更正（M8）
+
+更正不重开历史账单：源批次（已签月结）与原合同条款永不改写，更正请求生成独立的修订批次，修订内嵌「更正依据」快照（原/新月保底、原/新阶梯）。
+
+- 修订以源批次、生效账期、更正条目和更正说明规范化后哈希标识；同一请求重跑返回同一修订，不新增结果。
+- 重算从生效账期（默认取被更正合同的起始月，不得晚于当期）逐月进行到当期，原合同与更正后合同各自调用 M3/M4/M5 同一引擎和同一数据切片，输出每月原账、更正后金额与月差额。
+- 本期承接差额 = 历史月差额之和 + 本期应计差额 + 回冲差额；承接结算同时给出原应缴、更正后应缴、实缴与收缴差额，分月重算与收缴对账共用同一份修订载荷。
+- 当月按原合同重算的结果与源批次「分段核算」「旧期回冲」核对，结果记入修订清单「原账复核」；出现不一致时该修订仍留档但明确标记。
+- 校验或重算失败在落库前抛出，旧修订与源批次保留。修订与源批次共用 `/api/export/{id}` 下载同一种 JSON 凭证，不设审批流，也不提供第二种导出。
+
 ## 已知不覆盖
 
-单场结算以自然月为周期，适用内置样本所示合同规则。跨币种租金、税额和历史更正审批由外围系统处理。
+单场结算以自然月为周期，适用内置样本所示合同规则。跨币种租金、税额和历史更正审批由外围系统处理。M8 仅更正合同保底与阶梯费率并在源批次账簿范围内重算，不新增交易、免租日或缴款记录。

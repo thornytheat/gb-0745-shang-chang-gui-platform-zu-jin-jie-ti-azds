@@ -9,10 +9,13 @@
 3. 切到「退单回冲」，从原销售账期追查两次计算及退单号。回到「租金勾稽」查看收缴差额。
 4. 选择「北馆十一月」重跑，到「收银采信」按原因码复核隔离记录。
 5. 从顶部下载结算凭证，或在「租金勾稽」打印月结联。
+6. 在「租金更正」选择合同版本填写新保底或新阶梯，生成逐月重算与本期承接差额；源月结保持原样，重跑同一修订不新增，下载走同一份 JSON 凭证。
 
 ## 接口与测试
 
 `POST /api/runs` 接受 `sample` 和 `period`。也可以用 multipart 表单附带 JSON 文件 `file`。响应包含运行编号、复用标记和勾稽数。`GET /api/runs` 返回最近 40 个批次，其余入口列于深度登记。
+
+租金更正通过 `POST /api/corrections`（JSON：`source`、`changes`、可选 `effective`、`reason`）生成修订批次，`GET /api/corrections/{源批次}` 列修订、`GET /api/correction/{修订批次}` 取完整载荷；修订与源批次共用 `/api/export/{id}` 下载，不设审批和第二种导出。
 
 运行 `docker compose exec -T app pytest -q` 验证。`docker compose down` 停止服务并保留运行历史。需要重新开始演示时，可备份运行记录后使用新的 Compose 项目名启动独立数据卷。
 

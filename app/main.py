@@ -5,6 +5,7 @@ from app.errors import InputError
 from app.modules import STAGES, register
 from app.modules.m7_publish.export import evidence_pack
 from app.modules.m7_publish.service import run_once
+from app.modules.m8_correction.store import RevisionStore
 from app.store import RunStore
 from app.web import find_run, sample_bytes, store, yuan
 from flask import Flask, abort, jsonify, render_template, request, url_for
@@ -21,6 +22,7 @@ def create_app(config=None):
         app.config.update(config)
     app.json.ensure_ascii = False
     app.extensions["rent-runs"] = RunStore(app.config["DATABASE"])
+    app.extensions["rent-revisions"] = RevisionStore(app.config["DATABASE"])
     app.jinja_env.filters["yuan"] = yuan
     register(app)
 
@@ -30,7 +32,12 @@ def create_app(config=None):
 
     @app.errorhandler(InputError)
     def bad_input(error):
-        status = 413 if error.code == "TOO_LARGE" else 422
+        if error.code == "TOO_LARGE":
+            status = 413
+        elif error.code == "BAD_SOURCE":
+            status = 404
+        else:
+            status = 422
         return jsonify(code=error.code, detail=str(error)), status
 
     @app.errorhandler(413)
@@ -56,7 +63,15 @@ def create_app(config=None):
             "refunds": ("旧期回冲", "退单证据"),
             "reconcile": ("柜台对账",),
             "publish": (),
+            "correction": (),
         }[stage]
+        revision = None
+        if stage == "correction":
+            chosen_revision = request.args.get("revision")
+            if chosen_revision:
+                revision = app.extensions["rent-revisions"].get(chosen_revision)
+                if revision is None:
+                    abort(404)
         return render_template(
             f"{stage}.html",
             active=stage,
@@ -69,6 +84,12 @@ def create_app(config=None):
             sample=request.args.get("sample", "mall"),
             reused=request.args.get("reuse"),
             history=store().history() if stage == "publish" else [],
+            revision=revision,
+            revision_history=(
+                app.extensions["rent-revisions"].history(run["运行清单"]["批次"])
+                if stage == "correction"
+                else []
+            ),
         )
 
     @app.get("/api/runs")
@@ -102,6 +123,12 @@ def create_app(config=None):
 
     @app.get("/api/export/<run_id>")
     def export(run_id):
-        return evidence_pack(find_run(run_id))
+        run = store().get(run_id)
+        if run is not None:
+            return evidence_pack(run)
+        revision = app.extensions["rent-revisions"].get(run_id)
+        if revision is not None:
+            return evidence_pack(revision)
+        abort(404)
 
     return app

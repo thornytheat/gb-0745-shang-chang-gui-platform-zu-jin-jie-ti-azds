@@ -14,6 +14,26 @@ def test_workbench_and_independent_module_api(client):
         api = client.get(f"/api/{stage}/{run['id']}")
         assert api.status_code == 200 and field in api.json
         assert client.get(f"/work/{stage}?run={run['id']}").status_code == 200
+    # M8 租金更正：页面、修订列表与一次完整更正结算
+    assert client.get(f"/work/correction?run={run['id']}").status_code == 200
+    assert client.get(f"/api/corrections/{run['id']}").status_code == 200
+    revision = client.post(
+        "/api/corrections",
+        json={
+            "source": run["id"],
+            "changes": [
+                {"shop": "001", "version": "N-A", "tiers": [["1000", 1200], [None, 2400]]}
+            ],
+        },
+    )
+    assert revision.status_code == 201
+    revision_id = revision.json["id"]
+    assert client.get(f"/api/correction/{revision_id}").status_code == 200
+    assert (
+        client.get(f"/work/correction?run={run['id']}&revision={revision_id}").status_code
+        == 200
+    )
+    assert client.get(f"/api/export/{revision_id}").status_code == 200
 
 
 def test_bulk_sources_have_different_totals(client):
